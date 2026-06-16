@@ -1,0 +1,2 @@
+This is a game I am trying to make to practice my skills with that react TypeScript Python And fast API.
+The plan is to make a 2D game that is from top view and is made in canvas and mostly by myself from scratch.
