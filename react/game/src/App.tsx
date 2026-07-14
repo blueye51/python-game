@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import GamePage from './pages/GamePage'
 import MenuPage from './pages/MenuPage'
-import { PATH } from './routes/paths'
+import { PATH } from './routes/Routes'
 import './App.css'
 
 function App() {
