@@ -1,4 +1,4 @@
-import time
+import asyncio
 import math
 from uuid import uuid4
 
@@ -81,23 +81,51 @@ class Map:
         self.tile_size = tile_size
 
 class Game:
-    def __init__(self, map):
+    def __init__(self, game_id, map):
+        self.id = game_id
         self.running = True
         self.map = map
         self.tick_count = 0
         self.players = []
+        self.connections: set[WebSocket] = set()
+        self.task: asyncio.Task | None = None
 
-    def run(self):
-        while self.running:
-            self.update()
-            time.sleep(TICK_SECONDS)
+    async def run(self):
+        try:
+            while self.running:
+                self.update()
+                await self.broadcast()
+                await asyncio.sleep(TICK_SECONDS)
+        except asyncio.CancelledError:
+            pass
 
     def update(self):
         self.tick_count += 1
         print(f"Tick: {self.tick_count}")
 
-        if self.tick_count >= 5:
-            self.running = False
+    async def broadcast(self):
+        disconnected = []
+
+        for websocket in self.connections.copy():
+            try:
+                await websocket.send_json({"id": self.id})
+            except (RuntimeError, WebSocketDisconnect):
+                disconnected.append(websocket)
+
+        for websocket in disconnected:
+            self.connections.discard(websocket)
+
+    async def stop(self):
+        self.running = False
+
+        if self.task is not None:
+            self.task.cancel()
+            await self.task
+
+        for websocket in self.connections.copy():
+            await websocket.close()
+
+        self.connections.clear()
 
 class GameManager:
     def __init__(self):
@@ -105,11 +133,18 @@ class GameManager:
 
     def create_game(self):
         game_id = str(uuid4())
-        self.games[game_id] = Game(Map())
+        game = Game(game_id, Map())
+        self.games[game_id] = game
+        game.task = asyncio.create_task(game.run())
         return game_id
 
-    def delete_game(self, game_id):
-        return self.games.pop(game_id, None)
+    async def delete_game(self, game_id):
+        game = self.games.pop(game_id, None)
+
+        if game is not None:
+            await game.stop()
+
+        return game
 
     def get_game(self, game_id):
         return self.games.get(game_id)
@@ -120,13 +155,13 @@ class GameManager:
 game_manager = GameManager()
 
 @app.post("/games")
-def start_game():
+async def start_game():
     game_id = game_manager.create_game()
     return {"game_id": game_id}
 
 @app.delete("/games/{game_id}")
-def delete_game(game_id: str):
-    deleted_game = game_manager.delete_game(game_id)
+async def delete_game(game_id: str):
+    deleted_game = await game_manager.delete_game(game_id)
 
     if deleted_game is None:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -151,11 +186,12 @@ async def websocket(websocket: WebSocket, game_id: str):
         )
 
     await websocket.accept()
-    await websocket.send_text(f"Connected to game {game_id}")
+    game.connections.add(websocket)
 
     try:
         while True:
-            message = await websocket.receive_text()
-            await websocket.send_text(f"Game {game_id} received: {message}")
+            await websocket.receive_text()
     except WebSocketDisconnect:
         pass
+    finally:
+        game.connections.discard(websocket)

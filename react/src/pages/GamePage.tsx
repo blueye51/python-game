@@ -1,21 +1,20 @@
 import { useParams } from "react-router-dom"
+import GameCanvas from "../components/GameCanvas"
 import useWebSocket from "../components/UseWebsocket"
 
 function GamePage() {
     const { id } = useParams<{ id: string }>()
 
-    const websocketEndpoint = id
-        ? `/games/${encodeURIComponent(id)}/ws`
-        : null
-
-    useWebSocket(websocketEndpoint)
+    useWebSocket(id ? `/games/${encodeURIComponent(id)}/ws` : null)
 
     if (!id) {
         return <main className="page">Missing game ID.</main>
     }
 
     return (
-        <main className="page" />
+        <main className="game-page">
+            <GameCanvas />
+        </main>
     )
 }
 
